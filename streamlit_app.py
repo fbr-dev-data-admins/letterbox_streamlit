@@ -61,6 +61,11 @@ operation = st.selectbox(
 # ==================================================
 # WORDING UPDATES
 # ==================================================
+def text_to_html_paragraphs(text):
+    """Convert plain text with blank line separators into HTML paragraphs."""
+    paragraphs = [p.strip() for p in text.strip().split("\n\n") if p.strip()]
+    return "\n\n".join(f"<p>{p}</p>" for p in paragraphs)
+
 if operation == "Wording updates":
     st.header("Wording Updates")
 
@@ -84,31 +89,35 @@ if operation == "Wording updates":
         if not confirm:
             st.warning("Confirmation required")
             st.stop()
-
-        # Source logic
+    
+        if denver_text:
+            denver_html = text_to_html_paragraphs(denver_text)
+        if wslope_text:
+            wslope_html = text_to_html_paragraphs(wslope_text)
+    
         if scope == "Both Denver & WSlope":
             source_files = list_text_files_in_folder(repo, "base_templates")
         else:
             source_files = list_text_files_in_folder(repo, "updated_letters")
-
+    
         results = []
         for f in source_files:
             text, _ = read_file_contents(repo, f.path)
-
+    
             if scope in ("Denver only", "Both Denver & WSlope"):
                 text = safe_replace_between_tags(
                     text,
                     "<!-- denver wording start -->",
                     "<!-- denver wording end -->",
-                    denver_text
+                    denver_html
                 )
-
+    
             if scope in ("WSlope only", "Both Denver & WSlope"):
                 text = safe_replace_between_tags(
                     text,
                     "<!-- wslope wording start -->",
                     "<!-- wslope wording end -->",
-                    wslope_text
+                    wslope_html
                 )
 
             target = f"updated_letters/{f.name}"
