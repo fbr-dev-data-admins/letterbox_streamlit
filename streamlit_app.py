@@ -1,20 +1,32 @@
 import streamlit as st
 import os
 from github_helpers import *
+try:
+    import keyring
+except ImportError:
+    keyring = None
 
 st.set_page_config(page_title="Letterbox", layout="wide")
 st.title("Letterbox — Template Updater")
 
 # ---------------- Token resolution ----------------
 def resolve_token():
-    if st.secrets.get("GITHUB_TOKEN"):
+    # Streamlit Cloud
+    if "GITHUB_TOKEN" in st.secrets:
         return st.secrets["GITHUB_TOKEN"]
+
+    # Local env var
     if os.getenv("GITHUB_TOKEN"):
         return os.getenv("GITHUB_TOKEN")
-    try:
-        return keyring.get_password("github", "github_token")
-    except Exception:
-        return None
+
+    # Optional: local keyring only
+    if keyring:
+        try:
+            return keyring.get_password("github", "github_token")
+        except Exception:
+            pass
+
+    return None
 
 token = resolve_token()
 if not token:
