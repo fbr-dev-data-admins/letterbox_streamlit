@@ -35,18 +35,24 @@ if not token:
 
 g = get_github_client(token)
 
-# ---------------- Repo config ----------------
-st.sidebar.header("Private Repo")
-owner = st.sidebar.text_input("Owner")
-repo_name = st.sidebar.text_input("Repo name")
-branch = st.sidebar.text_input("Branch", value="main")
-
-if not owner or not repo_name:
+# ---------------- Repo configuration (from secrets) ----------------
+try:
+    REPO_OWNER = st.secrets["GITHUB_REPO_OWNER"]
+    REPO_NAME = st.secrets["GITHUB_REPO_NAME"]
+    BRANCH = st.secrets.get("GITHUB_REPO_BRANCH", "main")
+except KeyError as e:
+    st.error(f"Missing required secret: {e}")
     st.stop()
 
-repo = g.get_repo(f"{owner}/{repo_name}")
+g = get_github_client(token)
 
-operation = st.radio("Operation", ["Wording updates", "Signature updates"])
+try:
+    repo = g.get_repo(f"{REPO_OWNER}/{REPO_NAME}")
+except Exception as e:
+    st.error(f"Unable to access private repo: {e}")
+    st.stop()
+
+st.caption(f"Connected to private repo: `{REPO_OWNER}/{REPO_NAME}` on branch `{BRANCH}`")
 
 # ==================================================
 # WORDING UPDATES
@@ -107,7 +113,7 @@ if operation == "Wording updates":
                 target,
                 text,
                 f"Wording update ({scope})",
-                branch
+                BRANCH
             )
             results.append({"file": f.name, "action": action})
 
@@ -187,7 +193,7 @@ else:
                 f.path,
                 text,
                 f"Signature update ({location})",
-                branch
+                BRANCH
             )
             results.append({"file": f.name, "action": action})
 
