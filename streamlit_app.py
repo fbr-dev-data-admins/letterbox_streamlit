@@ -1,6 +1,5 @@
 import streamlit as st
 import os
-import keyring
 from github_helpers import *
 
 st.set_page_config(page_title="Letterbox", layout="wide")
