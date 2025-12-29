@@ -48,22 +48,17 @@ def read_file_contents(repo, path):
 # -----------------------------------------
 # Replace between tags (safe)
 # -----------------------------------------
-def safe_replace_between_tags(text, start_tag, end_tag, replacement):
-    """
-    Replace exactly the block between start_tag and end_tag (inclusive of those tags)
-    with:
-        start_tag + "\n" + replacement + "\n" + end_tag
-    """
+def safe_replace_between_tags(text, start_tag, end_tag, new_content):
     pattern = re.escape(start_tag) + r"(.*?)" + re.escape(end_tag)
-    repl = start_tag + "\n" + replacement + "\n" + end_tag
+    repl = start_tag + "\n" + new_content + "\n" + end_tag
 
     new_text, n = re.subn(pattern, repl, text, flags=re.DOTALL)
 
     if n == 0:
-        raise ValueError(f"Tags not found: {start_tag}, {end_tag}")
-
+        return text  # Tags not found, return unchanged
+    
     return new_text
-
+    
 # -----------------------------------------
 # Write or update file in repo
 # -----------------------------------------
