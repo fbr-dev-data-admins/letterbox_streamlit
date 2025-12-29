@@ -54,6 +54,10 @@ except Exception as e:
 
 st.caption(f"Connected to private repo: `{REPO_OWNER}/{REPO_NAME}` on branch `{BRANCH}`")
 
+operation = st.selectbox(
+    "What would you like to update?",
+    ["Wording updates", "Signature updates"]
+)
 # ==================================================
 # WORDING UPDATES
 # ==================================================
