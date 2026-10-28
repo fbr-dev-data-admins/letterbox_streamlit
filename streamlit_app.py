@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import re
 from github_helpers import *
 try:
     import keyring
@@ -44,8 +45,6 @@ except KeyError as e:
     st.error(f"Missing required secret: {e}")
     st.stop()
 
-g = get_github_client(token)
-
 try:
     repo = g.get_repo(f"{REPO_OWNER}/{REPO_NAME}")
 except Exception as e:
@@ -61,77 +60,47 @@ operation = st.selectbox(
 # ==================================================
 # WORDING UPDATES
 # ==================================================
+_BULLET = re.compile(r"^\s*[-*•]\s+(.*)$")
+_NUMBER = re.compile(r"^\s*\d+[.)]\s+(.*)$")
+
 def text_to_html_paragraphs(text):
-    """Convert plain text with blank line separators into HTML paragraphs."""
-    paragraphs = [p.strip() for p in text.strip().split("\n\n") if p.strip()]
-    return "\n\n".join(f"<p>{p}</p>" for p in paragraphs)
+    """Plain text -> HTML. Blank lines separate paragraphs;
+    lines starting with -, *, or • become <ul>; lines starting with 1. or 1) become <ol>."""
+    blocks = []  # (kind, [lines])
 
-if operation == "Wording updates":
-    st.header("Wording Updates")
-
-    scope = st.radio(
-        "Which wording to update?",
-        ["Denver only", "WSlope only", "Both Denver & WSlope"]
-    )
-
-    denver_text = ""
-    wslope_text = ""
-
-    if scope in ("Denver only", "Both Denver & WSlope"):
-        denver_text = st.text_area("Denver wording", height=250)
-
-    if scope in ("WSlope only", "Both Denver & WSlope"):
-        wslope_text = st.text_area("WSlope wording", height=250)
-
-    confirm = st.checkbox("Confirm wording overwrite")
-
-    if st.button("Run wording update"):
-        if not confirm:
-            st.warning("Confirmation required")
-            st.stop()
-    
-        if denver_text:
-            denver_html = text_to_html_paragraphs(denver_text)
-        if wslope_text:
-            wslope_html = text_to_html_paragraphs(wslope_text)
-    
-        if scope == "Both Denver & WSlope":
-            source_files = list_text_files_in_folder(repo, "base_templates")
+    def add(kind, line):
+        if blocks and blocks[-1][0] == kind and not blocks[-1][2]:
+            blocks[-1][1].append(line)
         else:
-            source_files = list_text_files_in_folder(repo, "updated_letters")
-    
-        results = []
-        for f in source_files:
-            text, _ = read_file_contents(repo, f.path)
-    
-            if scope in ("Denver only", "Both Denver & WSlope"):
-                text = safe_replace_between_tags(
-                    text,
-                    "<!-- denver wording start -->",
-                    "<!-- denver wording end -->",
-                    denver_html
-                )
-    
-            if scope in ("WSlope only", "Both Denver & WSlope"):
-                text = safe_replace_between_tags(
-                    text,
-                    "<!-- wslope wording start -->",
-                    "<!-- wslope wording end -->",
-                    wslope_html
-                )
+            blocks.append((kind, [line], False))
 
-            target = f"updated_letters/{f.name}"
-            action = write_or_update_file(
-                repo,
-                target,
-                text,
-                f"Wording update ({scope})",
-                BRANCH
-            )
-            results.append({"file": f.name, "action": action})
+    closed = True
+    for raw in text.strip().splitlines():
+        b, n = _BULLET.match(raw), _NUMBER.match(raw)
+        if b or n:
+            kind = "ul" if b else "ol"
+            if blocks and blocks[-1][0] == kind and not closed:
+                blocks[-1][1].append((b or n).group(1).strip())
+            else:
+                blocks.append((kind, [(b or n).group(1).strip()], False))
+            closed = False
+        elif not raw.strip():
+            closed = True
+        else:
+            if blocks and blocks[-1][0] == "p" and not closed:
+                blocks[-1][1].append(raw.strip())
+            else:
+                blocks.append(("p", [raw.strip()], False))
+            closed = False
 
-        st.success("Wording updates complete")
-        st.dataframe(results)
+    out = []
+    for kind, lines, _ in blocks:
+        if kind == "p":
+            out.append("<p>" + "\n".join(lines) + "</p>")
+        else:
+            items = "\n".join(f"  <li>{l}</li>" for l in lines)
+            out.append(f"<{kind}>\n{items}\n</{kind}>")
+    return "\n\n".join(out)
 
 # ==================================================
 # SIGNATURE UPDATES
