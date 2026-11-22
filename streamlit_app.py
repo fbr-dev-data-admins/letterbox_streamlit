@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+from html import escape
 from github_helpers import *
 try:
     import keyring
@@ -66,6 +67,33 @@ def text_to_html_paragraphs(text):
     paragraphs = [p.strip() for p in text.strip().split("\n\n") if p.strip()]
     return "\n\n".join(f"<p>{p}</p>" for p in paragraphs)
 
+def wording_input(location):
+    has_bullets = st.radio(
+        "Does this wording update include bullet points?",
+        ["No", "Yes"],
+        key=f"{location}_has_bullets",
+        horizontal=True,
+    )
+    if has_bullets == "No":
+        return text_to_html_paragraphs(st.text_area(f"{location} wording", height=250))
+
+    before = st.text_area("Before bullets", key=f"{location}_before_bullets")
+    bullets = st.text_area(
+        "Bullets",
+        key=f"{location}_bullets",
+        help="Paste one item per line without the bullet symbols.",
+        placeholder="Paste one item per line without the bullet symbols.",
+    )
+    after = st.text_area("After bullets", key=f"{location}_after_bullets")
+
+    items = [line.strip() for line in bullets.splitlines() if line.strip()]
+    if not items:
+        return ""
+
+    list_html = "\n".join(["<ul>", *(f"  <li>{escape(item)}</li>" for item in items), "</ul>"])
+    sections = [text_to_html_paragraphs(before), list_html, text_to_html_paragraphs(after)]
+    return "\n\n".join(section for section in sections if section)
+
 if operation == "Wording updates":
     st.header("Wording Updates")
 
@@ -74,14 +102,12 @@ if operation == "Wording updates":
         ["Denver only", "WSlope only", "Both Denver & WSlope"]
     )
 
-    denver_text = ""
-    wslope_text = ""
-
-    if scope in ("Denver only", "Both Denver & WSlope"):
-        denver_text = st.text_area("Denver wording", height=250)
-
-    if scope in ("WSlope only", "Both Denver & WSlope"):
-        wslope_text = st.text_area("WSlope wording", height=250)
+    locations = ["Denver", "WSlope"] if scope == "Both Denver & WSlope" else [scope.split()[0]]
+    wording_by_location = {}
+    for location in locations:
+        if len(locations) > 1:
+            st.subheader(location)
+        wording_by_location[location] = wording_input(location)
 
     confirm = st.checkbox("Confirm wording overwrite")
 
@@ -90,10 +116,10 @@ if operation == "Wording updates":
             st.warning("Confirmation required")
             st.stop()
     
-        if denver_text:
-            denver_html = text_to_html_paragraphs(denver_text)
-        if wslope_text:
-            wslope_html = text_to_html_paragraphs(wslope_text)
+        for location, wording in wording_by_location.items():
+            if not wording:
+                st.warning(f"Enter wording for {location}. If bullet points are enabled, enter at least one bullet.")
+                st.stop()
     
         if scope == "Both Denver & WSlope":
             source_files = list_text_files_in_folder(repo, "base_templates")
@@ -104,20 +130,13 @@ if operation == "Wording updates":
         for f in source_files:
             text, _ = read_file_contents(repo, f.path)
     
-            if scope in ("Denver only", "Both Denver & WSlope"):
+            for location, wording in wording_by_location.items():
+                tag = location.lower()
                 text = safe_replace_between_tags(
                     text,
-                    "<!-- denver wording start -->",
-                    "<!-- denver wording end -->",
-                    denver_html
-                )
-    
-            if scope in ("WSlope only", "Both Denver & WSlope"):
-                text = safe_replace_between_tags(
-                    text,
-                    "<!-- wslope wording start -->",
-                    "<!-- wslope wording end -->",
-                    wslope_html
+                    f"<!-- {tag} wording start -->",
+                    f"<!-- {tag} wording end -->",
+                    wording
                 )
 
             target = f"updated_letters/{f.name}"
