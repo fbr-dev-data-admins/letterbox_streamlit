@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-import re
+from html import escape
 from github_helpers import *
 try:
     import keyring
@@ -45,6 +45,8 @@ except KeyError as e:
     st.error(f"Missing required secret: {e}")
     st.stop()
 
+g = get_github_client(token)
+
 try:
     repo = g.get_repo(f"{REPO_OWNER}/{REPO_NAME}")
 except Exception as e:
@@ -60,47 +62,95 @@ operation = st.selectbox(
 # ==================================================
 # WORDING UPDATES
 # ==================================================
-_BULLET = re.compile(r"^\s*[-*•]\s+(.*)$")
-_NUMBER = re.compile(r"^\s*\d+[.)]\s+(.*)$")
-
 def text_to_html_paragraphs(text):
-    """Plain text -> HTML. Blank lines separate paragraphs;
-    lines starting with -, *, or • become <ul>; lines starting with 1. or 1) become <ol>."""
-    blocks = []  # (kind, [lines])
+    """Convert plain text with blank line separators into HTML paragraphs."""
+    paragraphs = [p.strip() for p in text.strip().split("\n\n") if p.strip()]
+    return "\n\n".join(f"<p>{p}</p>" for p in paragraphs)
 
-    def add(kind, line):
-        if blocks and blocks[-1][0] == kind and not blocks[-1][2]:
-            blocks[-1][1].append(line)
-        else:
-            blocks.append((kind, [line], False))
+def wording_input(location):
+    has_bullets = st.radio(
+        "Does this wording update include bullet points?",
+        ["No", "Yes"],
+        key=f"{location}_has_bullets",
+        horizontal=True,
+    )
+    if has_bullets == "No":
+        return text_to_html_paragraphs(st.text_area(f"{location} wording", height=250))
 
-    closed = True
-    for raw in text.strip().splitlines():
-        b, n = _BULLET.match(raw), _NUMBER.match(raw)
-        if b or n:
-            kind = "ul" if b else "ol"
-            if blocks and blocks[-1][0] == kind and not closed:
-                blocks[-1][1].append((b or n).group(1).strip())
-            else:
-                blocks.append((kind, [(b or n).group(1).strip()], False))
-            closed = False
-        elif not raw.strip():
-            closed = True
-        else:
-            if blocks and blocks[-1][0] == "p" and not closed:
-                blocks[-1][1].append(raw.strip())
-            else:
-                blocks.append(("p", [raw.strip()], False))
-            closed = False
+    before = st.text_area("Before bullets", key=f"{location}_before_bullets")
+    bullets = st.text_area(
+        "Bullets",
+        key=f"{location}_bullets",
+        help="Paste one item per line without the bullet symbols.",
+        placeholder="Paste one item per line without the bullet symbols.",
+    )
+    after = st.text_area("After bullets", key=f"{location}_after_bullets")
 
-    out = []
-    for kind, lines, _ in blocks:
-        if kind == "p":
-            out.append("<p>" + "\n".join(lines) + "</p>")
+    items = [line.strip() for line in bullets.splitlines() if line.strip()]
+    if not items:
+        return ""
+
+    list_html = "\n".join(["<ul>", *(f"  <li>{escape(item)}</li>" for item in items), "</ul>"])
+    sections = [text_to_html_paragraphs(before), list_html, text_to_html_paragraphs(after)]
+    return "\n\n".join(section for section in sections if section)
+
+if operation == "Wording updates":
+    st.header("Wording Updates")
+
+    scope = st.radio(
+        "Which wording to update?",
+        ["Denver only", "WSlope only", "Both Denver & WSlope"]
+    )
+
+    locations = ["Denver", "WSlope"] if scope == "Both Denver & WSlope" else [scope.split()[0]]
+    wording_by_location = {}
+    for location in locations:
+        if len(locations) > 1:
+            st.subheader(location)
+        wording_by_location[location] = wording_input(location)
+
+    confirm = st.checkbox("Confirm wording overwrite")
+
+    if st.button("Run wording update"):
+        if not confirm:
+            st.warning("Confirmation required")
+            st.stop()
+    
+        for location, wording in wording_by_location.items():
+            if not wording:
+                st.warning(f"Enter wording for {location}. If bullet points are enabled, enter at least one bullet.")
+                st.stop()
+    
+        if scope == "Both Denver & WSlope":
+            source_files = list_text_files_in_folder(repo, "base_templates")
         else:
-            items = "\n".join(f"  <li>{l}</li>" for l in lines)
-            out.append(f"<{kind}>\n{items}\n</{kind}>")
-    return "\n\n".join(out)
+            source_files = list_text_files_in_folder(repo, "updated_letters")
+    
+        results = []
+        for f in source_files:
+            text, _ = read_file_contents(repo, f.path)
+    
+            for location, wording in wording_by_location.items():
+                tag = location.lower()
+                text = safe_replace_between_tags(
+                    text,
+                    f"<!-- {tag} wording start -->",
+                    f"<!-- {tag} wording end -->",
+                    wording
+                )
+
+            target = f"updated_letters/{f.name}"
+            action = write_or_update_file(
+                repo,
+                target,
+                text,
+                f"Wording update ({scope})",
+                BRANCH
+            )
+            results.append({"file": f.name, "action": action})
+
+        st.success("Wording updates complete")
+        st.dataframe(results)
 
 # ==================================================
 # SIGNATURE UPDATES
